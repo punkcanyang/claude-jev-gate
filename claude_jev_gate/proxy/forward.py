@@ -10,6 +10,16 @@ from uuid import uuid4
 from ..config import ProxyConfig
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib 默认跟随 3xx 并保留 x-api-key，跨主机重定向会把上游 Key 带给第三方。"""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def mock_messages_response(body: dict[str, Any]) -> dict[str, Any]:
     """可证明的本地假响应（Anthropic messages 形）。"""
     model = str(body.get("model") or "mock-model")
@@ -78,7 +88,7 @@ def forward_messages(
 
     req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _OPENER.open(req, timeout=120) as resp:
             raw = resp.read()
             out_headers = {"Content-Type": resp.headers.get("Content-Type") or "application/json"}
             return int(resp.status), out_headers, raw

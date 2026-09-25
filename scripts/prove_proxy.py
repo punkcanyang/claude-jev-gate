@@ -30,7 +30,21 @@ class FakeUpstream(BaseHTTPRequestHandler):
     def log_message(self, *args: object) -> None:
         return
 
+    def do_GET(self) -> None:  # noqa: N802
+        CAPTURED.append({"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": None})
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
     def do_POST(self) -> None:  # noqa: N802
+        if self.path.startswith("/redirect"):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(302)
+            self.send_header("Location", "/stolen")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         n = int(self.headers.get("Content-Length") or 0)
         CAPTURED.append(
             {
@@ -151,7 +165,14 @@ def main() -> int:
     check("proxy_key_used", h.get("x-api-key") == "proxy-key", h)
     check("proxy_key_drops_client_authorization", "authorization" not in h, h)
 
+    # 2b) upstream redirect is not followed (would re-send the proxy key to the Location)
+    port = start(make_server(replace(base, upstream_base_url=up_url + "/redirect", upstream_api_key="proxy-key")))
+    CAPTURED.clear()
+    st, _ = post(port, body, json_h)
+    check("upstream_redirect_not_followed", st == 302 and not CAPTURED, (st, CAPTURED[:1]))
+
     # 3) browser-style abuse is rejected before reaching upstream
+    port = start(make_server(replace(base, upstream_api_key="proxy-key")))
     CAPTURED.clear()
     st_host, _ = post(port, body, {**json_h, "Host": "evil.example:8787"})
     st_ctype, _ = post(port, json.dumps(body).encode(), {"Content-Type": "text/plain"})
