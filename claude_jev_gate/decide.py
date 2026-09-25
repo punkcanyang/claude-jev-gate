@@ -18,6 +18,8 @@ ALLOW_STDOUT = (
 OUTCOME_ALLOW = "allow_once"
 OUTCOME_PASSTHROUGH = "passthrough"
 
+JEV_INPUT_LIMIT = 4000
+
 
 def _extract_tool(event: dict[str, Any]) -> tuple[str, Any]:
     name = event.get("tool_name") or event.get("toolName") or ""
@@ -44,7 +46,7 @@ def decide(event: dict[str, Any] | None, cfg: GateConfig | None = None) -> dict[
 
     event = event if isinstance(event, dict) else {}
     tool_name, tool_input = _extract_tool(event)
-    summary = summarize_tool(tool_name, tool_input)
+    summary = summarize_tool(tool_name, tool_input, limit=JEV_INPUT_LIMIT)
     payload = {
         "tool_name": summary["tool_name"],
         "tool_input_summary": summary["tool_input_summary"],
@@ -54,12 +56,17 @@ def decide(event: dict[str, Any] | None, cfg: GateConfig | None = None) -> dict[
     decided_by = "mock" if cfg.mock else "jev"
     raw: Any = None
     error_class: str | None = None
-    try:
-        raw = call_with_timeout(lambda: ask_jev(payload, cfg), cfg.timeout_seconds)
-    except FuturesTimeout:
-        error_class = "timeout"
-    except Exception:  # noqa: BLE001
-        error_class = "error"
+    if summary["truncated"]:
+        # Jev 只看得到前缀，放行的却是完整调用：不问，直接交回人审
+        error_class = "input_too_long"
+        decided_by = "gate"
+    else:
+        try:
+            raw = call_with_timeout(lambda: ask_jev(payload, cfg), cfg.timeout_seconds)
+        except FuturesTimeout:
+            error_class = "timeout"
+        except Exception:  # noqa: BLE001
+            error_class = "error"
 
     latency_ms = int((time.monotonic() - t0) * 1000)
     normalized = None if error_class else normalize_jev_result(raw)
