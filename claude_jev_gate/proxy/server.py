@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import traceback
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
@@ -85,6 +85,16 @@ def process_messages_body(body: dict[str, Any], cfg: ProxyConfig) -> dict[str, A
     return out
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _host_without_port(host_header: str) -> str:
+    h = host_header.strip().lower()
+    if h.startswith("["):
+        return h[1:].split("]", 1)[0]
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     cfg: ProxyConfig = None  # type: ignore[assignment]
 
@@ -92,14 +102,27 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # 安静一点；关键事件走 events.jsonl
         return
 
-    def _read_json(self) -> dict[str, Any]:
+    def _host_allowed(self) -> bool:
+        """挡 DNS rebinding：浏览器发来的 Host 是攻击者域名。代理会注入上游 Key，不能被网页当跳板。"""
+        allowed = set(_LOOPBACK_HOSTS)
+        if self.cfg.host not in ("", "0.0.0.0", "::"):
+            allowed.add(self.cfg.host.lower())
+        return _host_without_port(self.headers.get("Host") or "") in allowed
+
+    def _read_json(self) -> dict[str, Any] | None:
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length > 0 else b"{}"
+        raw = self.rfile.read(length) if length > 0 else b""
         try:
-            data = json.loads(raw.decode("utf-8") or "{}")
+            data = json.loads(raw.decode("utf-8"))
         except Exception:  # noqa: BLE001
-            return {}
-        return data if isinstance(data, dict) else {}
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _send_error_json(self, status: int, err_type: str, message: str) -> None:
+        body = json.dumps(
+            {"type": "error", "error": {"type": err_type, "message": message}}, ensure_ascii=False
+        ).encode("utf-8")
+        self._send(status, {"Content-Type": "application/json"}, body)
 
     def _send(self, status: int, headers: dict[str, str], body: bytes) -> None:
         self.send_response(status)
@@ -110,6 +133,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._host_allowed():
+            self._send_error_json(403, "permission_error", "host_not_allowed")
+            return
         path = urlparse(self.path).path
         if path in ("/healthz", "/health", "/"):
             payload = json.dumps(
@@ -127,12 +153,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._send(404, {"Content-Type": "application/json"}, b'{"error":"not_found"}')
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._host_allowed():
+            self._send_error_json(403, "permission_error", "host_not_allowed")
+            return
         path = urlparse(self.path).path
         if path not in ("/v1/messages", "/messages"):
             self._send(404, {"Content-Type": "application/json"}, b'{"error":"not_found"}')
             return
+        # 非 JSON 类型 = 浏览器可免预检跨站发的 simple request；强制 JSON 逼出 CORS 预检（本服务不应答 OPTIONS）
+        ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if ctype != "application/json":
+            self._send_error_json(415, "invalid_request_error", "content_type_must_be_application_json")
+            return
         try:
             body = self._read_json()
+            if body is None:
+                self._send_error_json(400, "invalid_request_error", "body_must_be_json_object")
+                return
             processed = process_messages_body(body, self.cfg)
             # 收集客户端头（小写）
             client_headers = {k.lower(): v for k, v in self.headers.items()}
@@ -141,18 +178,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             )
             self._send(status, resp_headers, raw)
         except Exception as exc:  # noqa: BLE001
-            err = json.dumps(
-                {
-                    "type": "error",
-                    "error": {
-                        "type": "proxy_error",
-                        "message": f"{type(exc).__name__}:{exc}",
-                        "trace": traceback.format_exc()[-500:],
-                    },
-                },
-                ensure_ascii=False,
-            ).encode("utf-8")
-            self._send(500, {"Content-Type": "application/json"}, err)
+            self._send_error_json(500, "api_error", f"proxy_error:{type(exc).__name__}")
 
 
 def make_server(cfg: ProxyConfig | None = None) -> ThreadingHTTPServer:
@@ -165,6 +191,13 @@ def make_server(cfg: ProxyConfig | None = None) -> ThreadingHTTPServer:
 def serve_forever(cfg: ProxyConfig | None = None) -> None:
     cfg = cfg or load_proxy_config()
     server = make_server(cfg)
+    if cfg.host not in _LOOPBACK_HOSTS:
+        print(
+            f"WARNING: proxy bound to non-loopback {cfg.host}; it has no client auth and "
+            "injects the upstream API key for anyone who can reach this port.",
+            file=sys.stderr,
+            flush=True,
+        )
     print(
         f"claude-jev-gate proxy listening on http://{cfg.host}:{cfg.port} "
         f"(route={cfg.route.enabled} trim_compress={cfg.trim_compress.enabled} "
