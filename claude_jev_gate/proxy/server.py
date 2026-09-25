@@ -63,10 +63,22 @@ def _apply_pipeline_to_body(body: dict[str, Any], cfg: ProxyConfig) -> dict[str,
 
 
 def process_messages_body(body: dict[str, Any], cfg: ProxyConfig) -> dict[str, Any]:
-    """应用裁压（若开）再路由改 model（若开）；全关则原样。"""
-    out = _apply_pipeline_to_body(body, cfg)
+    """应用裁压（若开）再路由改 model（若开）；全关则原样。两者出错都 fail-open，不堵对话。"""
+    try:
+        out = _apply_pipeline_to_body(body, cfg)
+    except Exception as exc:  # noqa: BLE001
+        emit(cfg.trim_compress.events_path, "proxy_trim_compress_error", error_class=type(exc).__name__)
+        out = body
     if cfg.route.enabled:
-        decision = route_messages_request(out, cfg=cfg.route)
+        try:
+            decision = route_messages_request(out, cfg=cfg.route)
+        except Exception as exc:  # noqa: BLE001
+            decision = {
+                "model": cfg.route.primary_model,
+                "label": "primary",
+                "fallback": True,
+                "reason": f"route_error:{type(exc).__name__}",
+            }
         model = decision.get("model")
         if model:
             out = dict(out)
