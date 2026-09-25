@@ -50,13 +50,16 @@ def forward_messages(
         "Content-Type": "application/json",
         "anthropic-version": (headers or {}).get("anthropic-version") or "2023-06-01",
     }
-    # 优先用代理配置的上游 key；也可透传客户端 x-api-key
-    api_key = cfg.upstream_api_key or (headers or {}).get("x-api-key") or ""
-    if api_key:
-        req_headers["x-api-key"] = api_key
-    # 透传 authorization（部分兼容口用 Bearer）
-    if headers and headers.get("authorization") and "authorization" not in {k.lower() for k in req_headers}:
-        req_headers["Authorization"] = headers["authorization"]
+    headers = headers or {}
+    if cfg.upstream_api_key:
+        # 代理自带 Key 时不透传客户端凭据：那可能是另一家（如 Anthropic）的 Key／OAuth token
+        req_headers["x-api-key"] = cfg.upstream_api_key
+    else:
+        if headers.get("x-api-key"):
+            req_headers["x-api-key"] = headers["x-api-key"]
+        # 部分兼容口用 Bearer
+        if headers.get("authorization"):
+            req_headers["Authorization"] = headers["authorization"]
 
     req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
     try:
