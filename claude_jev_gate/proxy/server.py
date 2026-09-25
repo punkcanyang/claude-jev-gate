@@ -37,6 +37,56 @@ def _normalize_messages_for_pipeline(body: dict[str, Any]) -> list[dict[str, Any
     return out
 
 
+def _block_ids(message: dict[str, Any] | None, block_type: str, key: str) -> set[Any]:
+    content = (message or {}).get("content")
+    if not isinstance(content, list):
+        return set()
+    return {b.get(key) for b in content if isinstance(b, dict) and b.get("type") == block_type}
+
+
+def repair_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """去掉被裁断的 tool_use／tool_result。
+
+    Anthropic 要求每个 tool_result 对应紧邻上一条 assistant 的 tool_use，
+    且非末尾 assistant 的每个 tool_use 在紧邻下一条 user 里有 tool_result；否则 400。
+    """
+    msgs = list(messages)
+    while True:
+        changed = False
+        out: list[dict[str, Any]] = []
+        for i, m in enumerate(msgs):
+            content = m.get("content")
+            role = m.get("role")
+            if not isinstance(content, list):
+                out.append(m)
+                continue
+            if role == "user":
+                prev = msgs[i - 1] if i > 0 and msgs[i - 1].get("role") == "assistant" else None
+                valid = _block_ids(prev, "tool_use", "id")
+                keep = [
+                    b for b in content
+                    if not (isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") not in valid)
+                ]
+            elif role == "assistant" and i < len(msgs) - 1:
+                nxt = msgs[i + 1] if msgs[i + 1].get("role") == "user" else None
+                valid = _block_ids(nxt, "tool_result", "tool_use_id")
+                keep = [
+                    b for b in content
+                    if not (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id") not in valid)
+                ]
+            else:
+                keep = content
+            if len(keep) != len(content):
+                changed = True
+                if not keep:
+                    continue
+                m = {**m, "content": keep}
+            out.append(m)
+        msgs = out
+        if not changed:
+            return msgs
+
+
 def _apply_pipeline_to_body(body: dict[str, Any], cfg: ProxyConfig) -> dict[str, Any]:
     if not cfg.trim_compress.enabled:
         return body
@@ -58,7 +108,7 @@ def _apply_pipeline_to_body(body: dict[str, Any], cfg: ProxyConfig) -> dict[str,
     elif "system" in out:
         # 若原有 system 被裁掉则删除
         out.pop("system", None)
-    out["messages"] = rest
+    out["messages"] = repair_tool_pairs(rest)
     return out
 
 
