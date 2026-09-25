@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/bin/permission_request.py"
+            "command": "/workspace/tools/typesafe-venv/bin/python ${CLAUDE_PLUGIN_ROOT}/bin/permission_request.py"
           }
         ]
       }

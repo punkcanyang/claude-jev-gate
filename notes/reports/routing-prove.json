@@ -1,0 +1,280 @@
+{
+  "n": 20,
+  "hard_match": 20,
+  "hard_match_rate": 1.0,
+  "label_distribution": {
+    "cheap": 5,
+    "complex": 5,
+    "tool_heavy": 5,
+    "long_context": 5
+  },
+  "fallback_count": 0,
+  "routing_disabled_labels": [
+    "primary"
+  ],
+  "low_confidence": {
+    "label": "primary",
+    "model": "deepseek-chat",
+    "confidence": 0.2,
+    "fallback": true,
+    "reason": "low_confidence_fallback",
+    "backend": "mock",
+    "original_label": "cheap",
+    "original_model": "deepseek-chat"
+  },
+  "timeout": {
+    "label": "primary",
+    "model": "deepseek-chat",
+    "fallback": true,
+    "reason": "jev_timeout"
+  },
+  "error": {
+    "label": "primary",
+    "model": "deepseek-chat",
+    "fallback": true,
+    "reason": "jev_error:RuntimeError"
+  },
+  "failures": [],
+  "results": [
+    {
+      "id": "s01",
+      "bucket": "simple",
+      "expect_label": "cheap",
+      "got_label": "cheap",
+      "got_model": "deepseek-chat",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "s02",
+      "bucket": "simple",
+      "expect_label": "cheap",
+      "got_label": "cheap",
+      "got_model": "deepseek-chat",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "s03",
+      "bucket": "simple",
+      "expect_label": "cheap",
+      "got_label": "cheap",
+      "got_model": "deepseek-chat",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "s04",
+      "bucket": "simple",
+      "expect_label": "cheap",
+      "got_label": "cheap",
+      "got_model": "deepseek-chat",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "s05",
+      "bucket": "simple",
+      "expect_label": "cheap",
+      "got_label": "cheap",
+      "got_model": "deepseek-chat",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "c01",
+      "bucket": "complex",
+      "expect_label": "complex",
+      "got_label": "complex",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "c02",
+      "bucket": "complex",
+      "expect_label": "complex",
+      "got_label": "complex",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "c03",
+      "bucket": "complex",
+      "expect_label": "complex",
+      "got_label": "complex",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "c04",
+      "bucket": "complex",
+      "expect_label": "complex",
+      "got_label": "complex",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "c05",
+      "bucket": "complex",
+      "expect_label": "complex",
+      "got_label": "complex",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "t01",
+      "bucket": "tool-heavy",
+      "expect_label": "tool_heavy",
+      "got_label": "tool_heavy",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "t02",
+      "bucket": "tool-heavy",
+      "expect_label": "tool_heavy",
+      "got_label": "tool_heavy",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "t03",
+      "bucket": "tool-heavy",
+      "expect_label": "tool_heavy",
+      "got_label": "tool_heavy",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "t04",
+      "bucket": "tool-heavy",
+      "expect_label": "tool_heavy",
+      "got_label": "tool_heavy",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "t05",
+      "bucket": "tool-heavy",
+      "expect_label": "tool_heavy",
+      "got_label": "tool_heavy",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "l01",
+      "bucket": "long-context",
+      "expect_label": "long_context",
+      "got_label": "long_context",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "l02",
+      "bucket": "long-context",
+      "expect_label": "long_context",
+      "got_label": "long_context",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "l03",
+      "bucket": "long-context",
+      "expect_label": "long_context",
+      "got_label": "long_context",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "l04",
+      "bucket": "long-context",
+      "expect_label": "long_context",
+      "got_label": "long_context",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    },
+    {
+      "id": "l05",
+      "bucket": "long-context",
+      "expect_label": "long_context",
+      "got_label": "long_context",
+      "got_model": "deepseek-reasoner",
+      "confidence": 0.72,
+      "fallback": false,
+      "reason": "heuristic_bucket",
+      "backend": "heuristic",
+      "match": true
+    }
+  ]
+}
