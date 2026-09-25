@@ -38,19 +38,34 @@ def forward_messages(
     *,
     cfg: ProxyConfig,
     headers: dict[str, str] | None = None,
+    query: str = "",
 ) -> tuple[int, dict[str, str], bytes]:
     """返回 (status, response_headers, raw_body)。"""
-    if cfg.upstream_mock or not cfg.upstream_base_url:
+    if cfg.upstream_mock:
         payload = json.dumps(mock_messages_response(body), ensure_ascii=False).encode("utf-8")
         return 200, {"Content-Type": "application/json"}, payload
+    if not cfg.upstream_base_url:
+        err = json.dumps(
+            {
+                "type": "error",
+                "error": {
+                    "type": "api_error",
+                    "message": "upstream_not_configured: set CLAUDE_JEV_UPSTREAM_BASE_URL or CLAUDE_JEV_UPSTREAM_MOCK=1",
+                },
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return 503, {"Content-Type": "application/json"}, err
 
-    url = cfg.upstream_base_url.rstrip("/") + "/v1/messages"
+    url = cfg.upstream_base_url.rstrip("/") + "/v1/messages" + (f"?{query}" if query else "")
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    headers = headers or {}
     req_headers = {
         "Content-Type": "application/json",
-        "anthropic-version": (headers or {}).get("anthropic-version") or "2023-06-01",
+        "anthropic-version": headers.get("anthropic-version") or "2023-06-01",
     }
-    headers = headers or {}
+    if headers.get("anthropic-beta"):
+        req_headers["anthropic-beta"] = headers["anthropic-beta"]
     if cfg.upstream_api_key:
         # 代理自带 Key 时不透传客户端凭据：那可能是另一家（如 Anthropic）的 Key／OAuth token
         req_headers["x-api-key"] = cfg.upstream_api_key

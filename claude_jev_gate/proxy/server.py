@@ -144,7 +144,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     "service": "claude-jev-gate-proxy",
                     "route_enabled": self.cfg.route.enabled,
                     "trim_compress_enabled": self.cfg.trim_compress.enabled,
-                    "upstream_mock": self.cfg.upstream_mock or not self.cfg.upstream_base_url,
+                    "upstream_mock": self.cfg.upstream_mock,
+                    "upstream_configured": bool(self.cfg.upstream_base_url),
                 },
                 ensure_ascii=False,
             ).encode("utf-8")
@@ -156,7 +157,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not self._host_allowed():
             self._send_error_json(403, "permission_error", "host_not_allowed")
             return
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path not in ("/v1/messages", "/messages"):
             self._send(404, {"Content-Type": "application/json"}, b'{"error":"not_found"}')
             return
@@ -174,7 +176,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # 收集客户端头（小写）
             client_headers = {k.lower(): v for k, v in self.headers.items()}
             status, resp_headers, raw = forward_messages(
-                processed, cfg=self.cfg, headers=client_headers
+                processed, cfg=self.cfg, headers=client_headers, query=parsed.query
             )
             self._send(status, resp_headers, raw)
         except Exception as exc:  # noqa: BLE001
@@ -183,9 +185,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 def make_server(cfg: ProxyConfig | None = None) -> ThreadingHTTPServer:
     cfg = cfg or load_proxy_config()
-    ProxyHandler.cfg = cfg
-    server = ThreadingHTTPServer((cfg.host, cfg.port), ProxyHandler)
-    return server
+    handler = type("BoundProxyHandler", (ProxyHandler,), {"cfg": cfg})
+    return ThreadingHTTPServer((cfg.host, cfg.port), handler)
 
 
 def serve_forever(cfg: ProxyConfig | None = None) -> None:
@@ -201,7 +202,7 @@ def serve_forever(cfg: ProxyConfig | None = None) -> None:
     print(
         f"claude-jev-gate proxy listening on http://{cfg.host}:{cfg.port} "
         f"(route={cfg.route.enabled} trim_compress={cfg.trim_compress.enabled} "
-        f"upstream_mock={cfg.upstream_mock or not cfg.upstream_base_url})",
+        f"upstream_mock={cfg.upstream_mock} upstream_configured={bool(cfg.upstream_base_url)})",
         flush=True,
     )
     try:
