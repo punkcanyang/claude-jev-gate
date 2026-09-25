@@ -1,6 +1,6 @@
 {
   "name": "claude-jev-gate",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Jev tool gate for Claude Code: high-confidence approve → allow once on PermissionRequest; otherwise hand back to human.",
   "author": {
     "name": "Punkcan Yang"

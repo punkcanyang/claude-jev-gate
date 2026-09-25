@@ -19,3 +19,7 @@ events.jsonl
 
 # local README preview renders (SVGs are source of truth)
 docs/readme-assets/preview/
+
+# internal dogfood / agent notes (not for public tree)
+notes/
+notes/reports/

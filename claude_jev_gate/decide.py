@@ -7,7 +7,7 @@ from typing import Any
 from .config import GateConfig, load_config
 from .events import emit
 from .jev_client import ask_jev, normalize_jev_result
-from .redact import summarize_tool
+from .redact import scrub_injection, summarize_tool
 from .timeouts import FuturesTimeout, call_with_timeout
 
 ALLOW_STDOUT = (
@@ -47,13 +47,18 @@ def decide(event: dict[str, Any] | None, cfg: GateConfig | None = None) -> dict[
     event = event if isinstance(event, dict) else {}
     tool_name, tool_input = _extract_tool(event)
     summary = summarize_tool(tool_name, tool_input, limit=JEV_INPUT_LIMIT)
+    # P2-9：进一步剥离常见注入句式；命中则标可疑（不承诺消灭）
+    scrubbed_summary, injection_suspect = scrub_injection(summary["tool_input_summary"])
+    summary = {**summary, "tool_input_summary": scrubbed_summary}
     payload = {
         "tool_name": summary["tool_name"],
         "tool_input_summary": summary["tool_input_summary"],
         "digest": summary["digest"],
     }
 
-    decided_by = "mock" if cfg.mock else "jev"
+    # P2-1：仅当 mock 有值且 ALLOW_MOCK 显式开启才走 mock
+    mock_active = bool(cfg.mock) and bool(cfg.allow_mock)
+    decided_by = "mock" if mock_active else "jev"
     raw: Any = None
     error_class: str | None = None
     if summary["truncated"]:
@@ -114,6 +119,11 @@ def decide(event: dict[str, Any] | None, cfg: GateConfig | None = None) -> dict[
             reason=reason,
             decided_by=decided_by,
             error_class=error_class,
+            # P2-1 醒目标记 mock
+            mock=mock_active,
+            allow_mock=bool(cfg.allow_mock),
+            mock_requested=bool(cfg.mock),
+            injection_suspect=bool(injection_suspect),
         )
     except Exception:  # noqa: BLE001
         pass
@@ -126,4 +136,5 @@ def decide(event: dict[str, Any] | None, cfg: GateConfig | None = None) -> dict[
         "confidence": conf,
         "latency_ms": latency_ms,
         "digest": summary["digest"],
+        "injection_suspect": bool(injection_suspect),
     }

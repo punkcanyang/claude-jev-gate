@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 MIN_CONFIDENCE_FLOOR = 0.5
@@ -16,6 +17,9 @@ DEFAULT_TRIM_KEEP_LAST_N = 6
 DEFAULT_PROXY_HOST = "127.0.0.1"
 DEFAULT_PROXY_PORT = 8787
 DEFAULT_PRIMARY_MODEL = "deepseek-chat"
+DEFAULT_COMPRESS_MIN_MESSAGES = 8
+DEFAULT_COMPRESS_MIN_CHARS = 8000
+DEFAULT_PROXY_MAX_BODY_BYTES = 32 * 1024 * 1024  # 32 MiB
 
 _FALSEY = frozenset({"", "0", "false", "no", "off", "n", "disabled"})
 _TRUTHY = frozenset({"1", "true", "yes", "on", "y", "enabled"})
@@ -72,6 +76,7 @@ class GateConfig:
     min_confidence: float
     timeout_seconds: float
     mock: str
+    allow_mock: bool
     jev_model: str
     events_path: Path
 
@@ -93,6 +98,8 @@ class TrimCompressConfig:
     enabled: bool
     keep_last_n_turns: int
     drop_old_tool_noise: bool
+    compress_min_messages: int
+    compress_min_chars: int
     events_path: Path
 
 
@@ -103,6 +110,8 @@ class ProxyConfig:
     upstream_base_url: str
     upstream_api_key: str
     upstream_mock: bool
+    auth_token: str
+    max_body_bytes: int
     route: RouteConfig
     trim_compress: TrimCompressConfig
 
@@ -127,12 +136,15 @@ def load_config() -> GateConfig:
         timeout = DEFAULT_TIMEOUT_SECONDS
     timeout = max(timeout, 0.1)
     mock = (os.environ.get("CLAUDE_JEV_GATE_MOCK") or "").strip()
+    # P2-1：mock 须额外显式测试开关，否则忽略 MOCK（防生产误开全放行）
+    allow_mock = as_bool(os.environ.get("CLAUDE_JEV_GATE_ALLOW_MOCK"), False)
     jev_model = (os.environ.get("CLAUDE_JEV_GATE_JEV_MODEL") or "jev-latest").strip() or "jev-latest"
     return GateConfig(
         enabled=enabled,
         min_confidence=min_conf,
         timeout_seconds=timeout,
         mock=mock,
+        allow_mock=allow_mock,
         jev_model=jev_model,
         events_path=_events_path(),
     )
@@ -193,12 +205,49 @@ def load_trim_compress_config() -> TrimCompressConfig:
         keep_n = DEFAULT_TRIM_KEEP_LAST_N
     keep_n = max(1, keep_n)
     drop_noise = as_bool(os.environ.get("CLAUDE_JEV_TRIM_DROP_OLD_TOOL_NOISE"), True)
+    try:
+        min_msgs = int(os.environ.get("CLAUDE_JEV_COMPRESS_MIN_MESSAGES") or DEFAULT_COMPRESS_MIN_MESSAGES)
+    except (TypeError, ValueError):
+        min_msgs = DEFAULT_COMPRESS_MIN_MESSAGES
+    min_msgs = max(1, min_msgs)
+    try:
+        min_chars = int(os.environ.get("CLAUDE_JEV_COMPRESS_MIN_CHARS") or DEFAULT_COMPRESS_MIN_CHARS)
+    except (TypeError, ValueError):
+        min_chars = DEFAULT_COMPRESS_MIN_CHARS
+    min_chars = max(0, min_chars)
     return TrimCompressConfig(
         enabled=enabled,
         keep_last_n_turns=keep_n,
         drop_old_tool_noise=drop_noise,
+        compress_min_messages=min_msgs,
+        compress_min_chars=min_chars,
         events_path=_events_path(),
     )
+
+
+def resolve_upstream_api_key(upstream_base_url: str) -> str:
+    """P2-2：按上游选 Key，避免 Anthropic Key 误发给 DeepSeek。
+
+    优先级：
+    1. CLAUDE_JEV_UPSTREAM_API_KEY（显式上游专用）
+    2. host 含 deepseek → 仅 DEEPSEEK_API_KEY
+    3. host 含 anthropic → 仅 ANTHROPIC_API_KEY
+    4. 其它未知 host → 不自动回退（空，除非设了 UPSTREAM_API_KEY）
+    """
+    explicit = (os.environ.get("CLAUDE_JEV_UPSTREAM_API_KEY") or "").strip()
+    if explicit:
+        return explicit
+    host = ""
+    try:
+        host = (urlparse(upstream_base_url).hostname or "").lower()
+    except Exception:  # noqa: BLE001
+        host = ""
+    if "deepseek" in host:
+        return (os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+    if "anthropic" in host:
+        return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    # 未知上游：不猜测，避免串 Key
+    return ""
 
 
 def load_proxy_config() -> ProxyConfig:
@@ -208,19 +257,22 @@ def load_proxy_config() -> ProxyConfig:
     except (TypeError, ValueError):
         port = DEFAULT_PROXY_PORT
     upstream = (os.environ.get("CLAUDE_JEV_UPSTREAM_BASE_URL") or "").strip().rstrip("/")
-    key = (
-        os.environ.get("CLAUDE_JEV_UPSTREAM_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("DEEPSEEK_API_KEY")
-        or ""
-    ).strip()
+    key = resolve_upstream_api_key(upstream)
     upstream_mock = as_bool(os.environ.get("CLAUDE_JEV_UPSTREAM_MOCK"), False)
+    auth_token = (os.environ.get("CLAUDE_JEV_PROXY_AUTH_TOKEN") or "").strip()
+    try:
+        max_body = int(os.environ.get("CLAUDE_JEV_PROXY_MAX_BODY_BYTES") or DEFAULT_PROXY_MAX_BODY_BYTES)
+    except (TypeError, ValueError):
+        max_body = DEFAULT_PROXY_MAX_BODY_BYTES
+    max_body = max(1024, max_body)
     return ProxyConfig(
         host=host,
         port=port,
         upstream_base_url=upstream,
         upstream_api_key=key,
         upstream_mock=upstream_mock,
+        auth_token=auth_token,
+        max_body_bytes=max_body,
         route=load_route_config(),
         trim_compress=load_trim_compress_config(),
     )

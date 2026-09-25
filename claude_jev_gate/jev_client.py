@@ -87,8 +87,12 @@ def normalize_jev_result(raw: Any) -> dict[str, Any] | None:
 
 
 def ask_jev(payload: dict[str, Any], cfg: GateConfig) -> dict[str, Any]:
-    """同步询问（调用方负责 timeout 包装）。缺 Key 时直接 unsure。"""
-    if cfg.mock:
+    """同步询问（调用方负责 timeout 包装）。缺 Key 时直接 unsure。
+
+    P2-1：mock 仅在 ``CLAUDE_JEV_GATE_ALLOW_MOCK`` 显式开启时生效；
+    否则忽略 MOCK，走 live／缺 Key 路径（防生产误开全放行）。
+    """
+    if cfg.mock and getattr(cfg, "allow_mock", False):
         return mock_response(cfg.mock, cfg.timeout_seconds)
     if not os.environ.get("TYPESAFE_API_KEY"):
         return {"decision": "unsure", "confidence": 0.0, "reason_code": "missing_typesafe_key"}
