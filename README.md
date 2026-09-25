@@ -30,7 +30,7 @@ python3 scripts/prove_proxy.py           # 代理 HTTP 层：透明／凭据／�
 
 四个 prove 必须 exit 0，都不需要 Key 或 `typesafe_sdk`。routing／trim_compress 报告落在临时目录（不改写公开树）。
 
-CI：workflow 定义见 `docs/ci/prove.yml`（四 prove + pyflakes）。写入 `.github/workflows/` 需要带 `workflow` scope 的 GitHub token。
+CI：`.github/workflows/prove.yml` 在 push／PR 时跑四个 prove + pyflakes。
 
 ### 2. 起代理（可选）
 
@@ -165,7 +165,7 @@ scripts/prove_routing.py
 scripts/prove_trim_compress.py
 scripts/prove_proxy.py
 scripts/demo_proxy_curl.sh
-docs/ci/prove.yml          # CI 定义（拷到 .github/workflows/ 启用；需 workflow scope）
+.github/workflows/prove.yml  # CI：四 prove + pyflakes
 config.example.env
 docs/readme-assets/
 ```
