@@ -59,14 +59,14 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
 
 代理的安全边界：
 
-- **可选客户端鉴权**（`CLAUDE_JEV_PROXY_AUTH_TOKEN`，默认关）。开启后请求须带 `x-claude-jev-proxy-token`；无／错 → 401。共享机建议开启。
+- **可选客户端鉴权**（`CLAUDE_JEV_PROXY_AUTH_TOKEN`，默认关）。开启后请求须带 `x-claude-jev-proxy-token`；无／错 → 401。共享机建议开启。Claude Code 侧用 `export ANTHROPIC_CUSTOM_HEADERS="x-claude-jev-proxy-token: <同一 token>"` 带上该头。
 - 默认只听 `127.0.0.1`；绑非回环地址会打印警告（有 token 时警告文案会注明已开鉴权）。
 - 只接受回环 `Host` 且 `Content-Type: application/json` 的请求（挡网页跨站 simple request 与 DNS rebinding 盗刷额度）。
 - **Key 按上游选**：`CLAUDE_JEV_UPSTREAM_API_KEY` 优先；否则 deepseek host → 仅 `DEEPSEEK_API_KEY`；anthropic host → 仅 `ANTHROPIC_API_KEY`；未知 host 不自动猜。代理自带 Key 时**不透传**客户端 `x-api-key`／`Authorization`。
 - 不跟随上游重定向（3xx 原样回给客户端）。
 - 请求体默认上限 32MiB（`CLAUDE_JEV_PROXY_MAX_BODY_BYTES`）；超限 413。
 - `/v1/messages/count_tokens`：有上游则透传，否则 501。
-- SSE：客户端 `stream=true` 时尽量 chunked 流式回写；非 stream／mock 仍整包缓冲。透传 `request-id`／`retry-after`／限流相关头。
+- SSE：客户端 `stream=true`（或 `Accept: text/event-stream`）时上游到一块写一块；代理按 HTTP/1.0 应答，流式响应不带长度、写完即关连接（不用 chunked）。非 stream／mock 仍整包缓冲。透传 `request-id`／`retry-after`／限流相关头。
 
 ### 3. 装工具闸 plugin
 
@@ -129,7 +129,8 @@ CLAUDE_JEV_GATE_PYTHON
 
 ## 路由与裁压要点
 
-- **路由 fail-open**：超时／异常／低置信时用**客户端请求的 model**；客户端未给再用 `CLAUDE_JEV_PRIMARY_MODEL`。禁止无条件把 `deepseek-chat` 塞给 Anthropic 上游。
+- **路由 fail-open**：超时／异常／低置信时用**客户端请求的 model**；客户端未给再用 `CLAUDE_JEV_PRIMARY_MODEL`。
+- **未配模型映射**：没设 `CLAUDE_JEV_PRIMARY_MODEL` 时，内置默认 `deepseek-chat` 只是占位；判到的 label 若没有对应的 `CLAUDE_JEV_MODEL_<LABEL>`，也改用客户端请求的 model（events 标 `model_source=client_unconfigured_label`）。要让路由真正换模型，请显式配置映射。
 - **无 `TYPESAFE_API_KEY`**：走启发式，`reason=missing_typesafe_key`（或 mock／dry_run）。超时后后台 daemon 线程仍可能跑完一次 Jev，但不 wait、不堵请求。
 - **启发式**：默认只用 **user 消息**判 bucket，避免 Claude Code 长 system 几乎总判 `tool_heavy`。
 - **裁压**：强制 trim → compress。compress 为本地启发式 stub；仅当非 system 消息数 ≥ `CLAUDE_JEV_COMPRESS_MIN_MESSAGES`（默认 8）**且**总 chars ≥ `CLAUDE_JEV_COMPRESS_MIN_CHARS`（默认 8000）才压缩。
