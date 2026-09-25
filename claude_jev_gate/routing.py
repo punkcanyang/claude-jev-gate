@@ -7,6 +7,7 @@ from typing import Any
 
 from .config import RouteConfig, ensure_typesafe_path, load_route_config
 from .events import emit
+from .redact import scrub
 from .timeouts import FuturesTimeout, call_with_timeout
 
 _BUCKET_TO_LABEL = {
@@ -132,7 +133,7 @@ def _jev_choice(text: str, cfg: RouteConfig, meta: dict[str, Any]) -> dict[str, 
         "long_context": f"长上下文／超长粘贴；走 {labels['long_context']}",
     }
     state = (
-        f"user_message_summary: {(text or '')[:2000]}\n"
+        f"user_message_summary: {scrub(text, limit=2000)}\n"
         f"tool_need_hint: {meta.get('tool_need') or 'unknown'}\n"
         f"session_approx_tokens: {meta.get('approx_tokens') or 0}\n"
         f"history_turns: {meta.get('history_turns') or 0}\n"
@@ -231,7 +232,7 @@ def route_turn(
         out = _primary_fallback(
             f"jev_error:{type(exc).__name__}",
             backend="typesafe" if not cfg.mock else "mock",
-            error=str(exc)[:200],
+            error=scrub(exc, limit=200),
         )
 
     if not out.get("fallback") and float(out.get("confidence") or 0) < min_conf:

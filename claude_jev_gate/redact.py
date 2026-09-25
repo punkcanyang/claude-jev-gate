@@ -32,11 +32,11 @@ _REDACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
-def scrub(text: Any, limit: int = 400) -> str:
+def scrub(text: Any, limit: int | None = 400) -> str:
     s = str(text or "")
     for pattern, repl in _REDACT_PATTERNS:
         s = pattern.sub(repl, s)
-    return s[:limit]
+    return s if limit is None else s[:limit]
 
 
 def digest_of(*parts: Any) -> str:
@@ -47,8 +47,10 @@ def digest_of(*parts: Any) -> str:
     return h.hexdigest()[:32]
 
 
-def summarize_tool(tool_name: str, tool_input: Any, *, limit: int = 400) -> dict[str, str]:
-    name = scrub(tool_name, limit=80)
+def summarize_tool(tool_name: str, tool_input: Any, *, limit: int = 400) -> dict[str, Any]:
+    """truncated=True 表示摘要看不到完整调用；调用方不得据此自动放行。"""
+    full_name = scrub(tool_name, limit=None)
+    name = full_name[:80]
     if isinstance(tool_input, (dict, list)):
         try:
             raw = json.dumps(tool_input, ensure_ascii=False, default=str)
@@ -56,9 +58,11 @@ def summarize_tool(tool_name: str, tool_input: Any, *, limit: int = 400) -> dict
             raw = str(tool_input)
     else:
         raw = str(tool_input or "")
-    summary = scrub(raw, limit=limit)
+    full_summary = scrub(raw, limit=None)
+    summary = full_summary[:limit]
     return {
         "tool_name": name,
         "tool_input_summary": summary,
         "digest": digest_of(name, summary),
+        "truncated": len(full_name) > len(name) or len(full_summary) > len(summary),
     }

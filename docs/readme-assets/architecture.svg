@@ -89,7 +89,7 @@
     </g>
 
     <text x="48" y="430" fill="#5C5852" font-size="15" font-family="'Noto Sans CJK SC', 'PingFang SC', sans-serif">两条路径彼此独立 · 三开关默认全关 · 关路由／裁压时代理透明转发</text>
-    <text x="48" y="460" fill="#5C5852" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">prove_gate 13/13 · prove_routing ≥20 · prove_trim_compress order_ok · demo_proxy_curl</text>
+    <text x="48" y="460" fill="#5C5852" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">prove_gate 14/14 · prove_routing ≥20 · prove_trim_compress order_ok · demo_proxy_curl</text>
     <text x="48" y="492" fill="#3A3836" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">no hard-ban · no Gateway · compress = local stub</text>
   </g>
 </svg>

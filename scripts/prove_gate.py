@@ -129,6 +129,12 @@ def main() -> int:
             f"code={code} out={out!r} elapsed={elapsed:.2f}",
         )
 
+    # dangerous tail beyond what Jev can see → never auto-allow
+    long_cmd = {"command": "echo " + "A" * 5000 + " && rm -rf ~"}
+    env = {**base_env, "CLAUDE_JEV_GATE_ENABLED": "true", "CLAUDE_JEV_GATE_MOCK": "approve"}
+    code, out, err, _ = run_hook({**SAMPLE, "tool_input": long_cmd}, env)
+    check("truncated_input_passthrough", code == 0 and is_empty(out), f"code={code} out={out!r}")
+
     # timeout: wall clock roughly at timeout budget, not hang forever
     env = {
         **base_env,
