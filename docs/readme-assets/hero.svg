@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">claude-jev-gate — PermissionRequest tool gate and local Anthropic proxy</title>
+  <desc id="desc">Monochrome hero: Claude Code permission gate with allow-once versus human-review, three off-by-default switches, and optional local proxy hop for Jev route plus trim-then-compress.</desc>
+
+  <rect width="1200" height="400" rx="28" fill="#0B0B0C"/>
+  <rect x="0" y="0" width="6" height="400" fill="#F4F1EA"/>
+
+  <rect x="40" y="28" width="1120" height="344" rx="4" fill="none" stroke="#2E2C2A" stroke-width="1"/>
+  <line x1="40" y1="56" x2="1160" y2="56" stroke="#2E2C2A" stroke-width="1"/>
+  <text x="56" y="48" fill="#5C5852" font-size="11" letter-spacing="2.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">GATE · PROXY · SWITCHES</text>
+  <text x="1104" y="48" text-anchor="end" fill="#5C5852" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">v0.1 · MIT</text>
+
+  <!-- LEFT: title block -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'PingFang SC', sans-serif">
+    <text x="64" y="108" fill="#8A857C" font-size="15" letter-spacing="2.2" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">CLAUDE CODE · HOOKS + LOCAL PROXY</text>
+    <text x="64" y="168" fill="#F4F1EA" font-size="52" font-weight="700">claude-jev-gate</text>
+    <!-- CJK first so Cairo / GitHub can resolve glyphs -->
+    <text x="64" y="212" fill="#D4D0C8" font-size="20" font-family="'Noto Sans CJK SC', 'PingFang SC', 'Noto Sans SC', sans-serif">高置信 approve → allow once；可选路由 + 先裁再压</text>
+    <text x="64" y="244" fill="#8A857C" font-size="17" font-family="'Noto Sans CJK SC', 'PingFang SC', 'Noto Sans SC', sans-serif">三开关默认关 · TypeSafe 直连 · 无 Gateway</text>
+
+    <g transform="translate(64 278)">
+      <rect width="148" height="36" rx="6" fill="#161514" stroke="#3A3836"/>
+      <text x="74" y="24" text-anchor="middle" fill="#F4F1EA" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">allow once</text>
+      <rect x="160" width="168" height="36" rx="6" fill="#161514" stroke="#3A3836"/>
+      <text x="244" y="24" text-anchor="middle" fill="#8A857C" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">human review</text>
+      <rect x="340" width="132" height="36" rx="6" fill="#161514" stroke="#3A3836"/>
+      <text x="406" y="24" text-anchor="middle" fill="#8A857C" font-size="13" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">3× OFF</text>
+    </g>
+  </g>
+
+  <!-- RIGHT: gate panel -->
+  <g transform="translate(680 78)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+    <rect width="460" height="268" rx="12" fill="#161514" stroke="#2E2C2A"/>
+    <rect width="460" height="40" rx="12" fill="#121110"/>
+    <rect y="28" width="460" height="12" fill="#121110"/>
+    <text x="20" y="26" fill="#8A857C" font-size="13" letter-spacing="1">PermissionRequest</text>
+    <circle cx="420" cy="20" r="5" fill="#3A3836"/>
+    <circle cx="438" cy="20" r="5" fill="#5C5852"/>
+
+    <g transform="translate(20 56)">
+      <text x="0" y="0" fill="#5C5852" font-size="12" letter-spacing="1.5">JEV DECISION</text>
+
+      <g transform="translate(0 14)">
+        <rect width="200" height="72" rx="8" fill="#0B0B0C" stroke="#F4F1EA" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#F4F1EA" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">allow once</text>
+        <text x="16" y="52" fill="#8A857C" font-size="13">high-conf approve</text>
+      </g>
+
+      <text x="214" y="56" fill="#5C5852" font-size="14">/</text>
+
+      <g transform="translate(232 14)">
+        <rect width="188" height="72" rx="8" fill="#0B0B0C" stroke="#3A3836" stroke-width="1.5"/>
+        <text x="16" y="28" fill="#D4D0C8" font-size="16" font-weight="600" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">human review</text>
+        <text x="16" y="52" fill="#5C5852" font-size="13">deny · unsure · fail</text>
+      </g>
+    </g>
+
+    <g transform="translate(20 168)">
+      <text x="0" y="0" fill="#5C5852" font-size="12" letter-spacing="1.5">SWITCHES · DEFAULT OFF</text>
+
+      <g transform="translate(0 14)">
+        <rect width="132" height="44" rx="8" fill="#0B0B0C" stroke="#3A3836"/>
+        <text x="12" y="18" fill="#8A857C" font-size="11">GATE</text>
+        <rect x="12" y="24" width="36" height="12" rx="6" fill="#2E2C2A"/>
+        <circle cx="18" cy="30" r="5" fill="#8A857C"/>
+        <text x="56" y="34" fill="#5C5852" font-size="12">OFF</text>
+      </g>
+
+      <g transform="translate(144 14)">
+        <rect width="132" height="44" rx="8" fill="#0B0B0C" stroke="#3A3836"/>
+        <text x="12" y="18" fill="#8A857C" font-size="11">ROUTE</text>
+        <rect x="12" y="24" width="36" height="12" rx="6" fill="#2E2C2A"/>
+        <circle cx="18" cy="30" r="5" fill="#8A857C"/>
+        <text x="56" y="34" fill="#5C5852" font-size="12">OFF</text>
+      </g>
+
+      <g transform="translate(288 14)">
+        <rect width="132" height="44" rx="8" fill="#0B0B0C" stroke="#3A3836"/>
+        <text x="12" y="18" fill="#8A857C" font-size="11">TRIM→CMP</text>
+        <rect x="12" y="24" width="36" height="12" rx="6" fill="#2E2C2A"/>
+        <circle cx="18" cy="30" r="5" fill="#8A857C"/>
+        <text x="56" y="34" fill="#5C5852" font-size="12">OFF</text>
+      </g>
+    </g>
+  </g>
+</svg>
