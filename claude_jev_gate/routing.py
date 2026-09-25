@@ -258,6 +258,17 @@ def route_turn(
             "original_label": out.get("label"),
             "original_model": out.get("model"),
         }
+    elif (
+        not out.get("fallback")
+        and (fallback_model or "").strip()
+        and out.get("label") in cfg.unconfigured_labels
+    ):
+        out = {
+            **out,
+            "model": primary,
+            "model_source": "client_unconfigured_label",
+            "original_model": out.get("model"),
+        }
     return out
 
 

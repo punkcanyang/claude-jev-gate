@@ -91,6 +91,8 @@ class RouteConfig:
     primary_model: str
     models: dict[str, str] = field(default_factory=dict)
     events_path: Path = field(default_factory=lambda: Path.home() / ".claude" / "claude-jev-gate" / "events.jsonl")
+    # 模型只来自内置默认（未配 env）的 label：有客户端 model 时用客户端 model，避免把 deepseek-chat 发给别家上游
+    unconfigured_labels: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,23 @@ def load_config() -> GateConfig:
     )
 
 
+_LABEL_MODEL_ENV = {
+    "cheap": "CLAUDE_JEV_MODEL_CHEAP",
+    "complex": "CLAUDE_JEV_MODEL_COMPLEX",
+    "tool_heavy": "CLAUDE_JEV_MODEL_TOOL_HEAVY",
+    "long_context": "CLAUDE_JEV_MODEL_LONG_CONTEXT",
+}
+
+
+def unconfigured_route_labels() -> frozenset[str]:
+    if (os.environ.get("CLAUDE_JEV_PRIMARY_MODEL") or "").strip():
+        return frozenset()
+    return frozenset(
+        {"primary"}
+        | {label for label, env in _LABEL_MODEL_ENV.items() if not (os.environ.get(env) or "").strip()}
+    )
+
+
 def candidate_labels(primary: str | None = None) -> dict[str, str]:
     primary_model = (primary or os.environ.get("CLAUDE_JEV_PRIMARY_MODEL") or DEFAULT_PRIMARY_MODEL).strip()
     return {
@@ -194,6 +213,7 @@ def load_route_config() -> RouteConfig:
         primary_model=primary,
         models=models,
         events_path=_events_path(),
+        unconfigured_labels=unconfigured_route_labels(),
     )
 
 
