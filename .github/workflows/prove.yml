@@ -1,0 +1,28 @@
+name: prove
+
+on:
+  push:
+    branches: [main, "p2-*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pyflakes
+        run: |
+          python -m pip install --quiet pyflakes
+          python -m pyflakes claude_jev_gate bin scripts
+      - name: prove_gate
+        run: python3 scripts/prove_gate.py
+      - name: prove_routing
+        run: python3 scripts/prove_routing.py
+      - name: prove_trim_compress
+        run: python3 scripts/prove_trim_compress.py
+      - name: prove_proxy
+        run: python3 scripts/prove_proxy.py

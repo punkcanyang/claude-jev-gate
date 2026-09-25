@@ -31,12 +31,33 @@ _REDACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
 ]
 
+# P2-9：常见提示注入句式（启发式；不承诺消灭）
+_INJECTION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?i)\bignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)\b"),
+    re.compile(r"(?i)\bdisregard\s+(all\s+)?(previous|prior|above)\b"),
+    re.compile(r"(?i)\byou\s+are\s+now\b.{0,40}\b(unrestricted|jailbroken|DAN)\b"),
+    re.compile(r"(?i)\b(system|assistant)\s*:\s*"),
+    re.compile(r"(?i)\bnew\s+instructions?\s*:"),
+    re.compile(r"(?i)\boverride\s+(the\s+)?(system|safety|policy)\b"),
+]
+
 
 def scrub(text: Any, limit: int | None = 400) -> str:
     s = str(text or "")
     for pattern, repl in _REDACT_PATTERNS:
         s = pattern.sub(repl, s)
     return s if limit is None else s[:limit]
+
+
+def scrub_injection(text: Any) -> tuple[str, bool]:
+    """剥离常见注入句式；返回 (scrubbed, suspect)。不承诺消灭提示注入。"""
+    s = str(text or "")
+    suspect = False
+    for pat in _INJECTION_PATTERNS:
+        if pat.search(s):
+            suspect = True
+            s = pat.sub("[INJECTION_SCRUBBED]", s)
+    return s, suspect
 
 
 def digest_of(*parts: Any) -> str:

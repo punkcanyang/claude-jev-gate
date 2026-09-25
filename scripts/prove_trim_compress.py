@@ -14,8 +14,7 @@ from claude_jev_gate.config import TrimCompressConfig  # noqa: E402
 from claude_jev_gate.pipeline import apply_trim_then_compress, get_last_pipeline  # noqa: E402
 from claude_jev_gate.trim import estimate_chars  # noqa: E402
 
-OUT_MD = ROOT / "notes" / "reports" / "trim-compress-proof.md"
-OUT_JSON = ROOT / "notes" / "reports" / "trim-compress-proof.json"
+# P2-11：报告写临时目录
 
 
 def build_long_session(n_turns: int = 40) -> list[dict]:
@@ -53,6 +52,8 @@ def main() -> int:
             enabled=True,
             keep_last_n_turns=6,
             drop_old_tool_noise=True,
+            compress_min_messages=8,
+            compress_min_chars=8000,
             events_path=events_path,
         )
         msgs = build_long_session(40)
@@ -85,6 +86,8 @@ def main() -> int:
             enabled=False,
             keep_last_n_turns=6,
             drop_old_tool_noise=True,
+            compress_min_messages=8,
+            compress_min_chars=8000,
             events_path=Path(td) / "off.jsonl",
         )
         out_off, pipe_off = apply_trim_then_compress(msgs, cfg=cfg_off)
@@ -101,6 +104,23 @@ def main() -> int:
         ):
             failures.append(f"force pipeline order bad: {pipe_force}")
 
+
+        # P2-6：短会话不猛砍（低于门槛则 compress skip）
+        short = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "ok"},
+            {"role": "assistant", "content": "sure"},
+            {"role": "user", "content": "bye"},
+        ]
+        short_out, short_pipe = apply_trim_then_compress(short, cfg=cfg, force=True)
+        cstats = short_pipe[1] if len(short_pipe) > 1 else {}
+        if not cstats.get("skipped_short") and not cstats.get("skipped_below_threshold"):
+            # 短会话 chars 也很小，应跳过
+            if len(short_out) < len(short):
+                failures.append(f"P2-6 short session was compressed: {cstats}")
+
         last = get_last_pipeline()
         report = {
             "order_ok": order_ok,
@@ -115,7 +135,10 @@ def main() -> int:
             "last_pipeline": last,
             "failures": failures,
         }
-        OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
+        out_dir = Path(td) / "reports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        OUT_JSON = out_dir / "trim-compress-proof.json"
+        OUT_MD = out_dir / "trim-compress-proof.md"
         OUT_JSON.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         lines = [
             "# trim → compress 证明（claude-jev-gate）",

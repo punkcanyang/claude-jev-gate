@@ -1,4 +1,7 @@
-"""Jev（TypeSafe 直连）模型路由：Choice + confidence；失败／低置信 → 主模型（fail-open）。"""
+"""Jev（TypeSafe 直连）模型路由：Choice + confidence；失败／低置信 → 客户端 model／主模型（fail-open）。
+
+超时后后台 daemon 线程仍可能跑完一次 Jev（见 timeouts.call_with_timeout）；不 wait、不失控。
+"""
 from __future__ import annotations
 
 import os
@@ -22,7 +25,11 @@ _BUCKET_TO_LABEL = {
 
 
 def _heuristic_route(text: str, cfg: RouteConfig, meta: dict[str, Any]) -> dict[str, Any]:
-    """无密钥／mock heuristic：规则粗分；bucket 明确时给够门槛置信。"""
+    """无密钥／mock heuristic：规则粗分；bucket 明确时给够门槛置信。
+
+    P2-8：只扫 user 侧文本（调用方应传入 extract_user_text(..., include_system=False)），
+    避免 Claude Code 长 system 里的 tool 字样几乎总判 tool_heavy。
+    """
     t = (text or "").lower()
     labels = cfg.models
     bucket = str(meta.get("bucket") or "").strip().lower()
@@ -182,11 +189,15 @@ def route_turn(
     cfg: RouteConfig | None = None,
     meta: dict[str, Any] | None = None,
     dry_run: bool = False,
+    fallback_model: str | None = None,
 ) -> dict[str, Any]:
-    """返回选型；低置信／超时／异常 → primary_model，不阻塞。"""
+    """返回选型；低置信／超时／异常 → fallback_model（默认 primary_model），不阻塞。
+
+    P2-3：调用方应传入客户端请求的 model 作为 fallback_model，禁止无条件塞 deepseek-chat。
+    """
     cfg = cfg or load_route_config()
     meta = dict(meta or {})
-    primary = cfg.primary_model
+    primary = (fallback_model or "").strip() or cfg.primary_model
     min_conf = float(cfg.min_confidence)
 
     if not cfg.enabled:
@@ -216,17 +227,19 @@ def route_turn(
             return _mock_route(cfg.mock, cfg, user_message, meta)
         if dry_run or not os.environ.get("TYPESAFE_API_KEY"):
             out = _heuristic_route(user_message, cfg, meta)
-            out["reason"] = (
-                "dry_run_or_missing_key"
-                if dry_run or not os.environ.get("TYPESAFE_API_KEY")
-                else out["reason"]
-            )
+            # P2-8：无 Key 行为可预期
+            out["reason"] = "missing_typesafe_key" if not dry_run else "dry_run_heuristic"
+            if dry_run and os.environ.get("TYPESAFE_API_KEY"):
+                out["reason"] = "dry_run_heuristic"
+            elif dry_run:
+                out["reason"] = "dry_run_or_missing_key"
             return out
         return _jev_choice(user_message, cfg, meta)
 
     try:
         out = call_with_timeout(_call, cfg.timeout_seconds)
     except FuturesTimeout:
+        # 超时后 daemon 线程仍可能在后台跑完；不 wait（见 timeouts.py）
         out = _primary_fallback("jev_timeout", backend="typesafe" if not cfg.mock else "mock")
     except Exception as exc:  # noqa: BLE001
         out = _primary_fallback(
@@ -245,21 +258,37 @@ def route_turn(
             "original_label": out.get("label"),
             "original_model": out.get("model"),
         }
+    elif (
+        not out.get("fallback")
+        and (fallback_model or "").strip()
+        and out.get("label") in cfg.unconfigured_labels
+    ):
+        out = {
+            **out,
+            "model": primary,
+            "model_source": "client_unconfigured_label",
+            "original_model": out.get("model"),
+        }
     return out
 
 
-def extract_user_text(body: dict[str, Any]) -> str:
-    """从 Anthropic Messages 请求体抽用户侧文本摘要。"""
+def extract_user_text(body: dict[str, Any], *, include_system: bool = False) -> str:
+    """从 Anthropic Messages 请求体抽用户侧文本摘要。
+
+    P2-8：默认**不含** system（Claude Code 长 system 含大量 tool 字样，会把启发式几乎总判成 tool_heavy）。
+    Jev live 路径如需短 system hint，由调用方单独传入。
+    """
     parts: list[str] = []
-    system = body.get("system")
-    if isinstance(system, str) and system.strip():
-        parts.append(system[:500])
-    elif isinstance(system, list):
-        for block in system:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text") or "")[:500])
-            elif isinstance(block, str):
-                parts.append(block[:500])
+    if include_system:
+        system = body.get("system")
+        if isinstance(system, str) and system.strip():
+            parts.append(system[:200])
+        elif isinstance(system, list):
+            for block in system:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(str(block.get("text") or "")[:200])
+                elif isinstance(block, str):
+                    parts.append(block[:200])
     messages = body.get("messages") or []
     if isinstance(messages, list):
         for m in messages:
@@ -284,22 +313,27 @@ def route_messages_request(
     *,
     cfg: RouteConfig | None = None,
 ) -> dict[str, Any]:
-    """对 /v1/messages body 选型；写事件。"""
+    """对 /v1/messages body 选型；写事件。
+
+    P2-3：fail-open 回退用客户端请求的 model，缺省再用 primary_model。
+    """
     cfg = cfg or load_route_config()
-    text = extract_user_text(body)
+    text = extract_user_text(body, include_system=False)
     messages = body.get("messages") if isinstance(body.get("messages"), list) else []
     approx = sum(len(str((m or {}).get("content") or "")) for m in messages if isinstance(m, dict))
+    client_model = str(body.get("model") or "").strip() or None
     meta = {
         "approx_tokens": approx // 4,
         "history_turns": len(messages),
         "tool_need": "unknown",
     }
-    decision = route_turn(text, cfg=cfg, meta=meta)
+    decision = route_turn(text, cfg=cfg, meta=meta, fallback_model=client_model)
     emit(
         cfg.events_path,
         "route_decision",
         decision=decision,
         model_in=body.get("model"),
         model_out=decision.get("model"),
+        fallback_used_client_model=bool(decision.get("fallback") and client_model),
     )
     return decision

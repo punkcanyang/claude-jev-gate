@@ -104,8 +104,26 @@ def main() -> int:
     code, out, err, _ = run_hook(SAMPLE, base_env)
     check("disabled_default_empty", code == 0 and is_empty(out), f"code={code} out={out!r}")
 
-    # 2) enabled + approve → allow
+    # P2-1：仅 MOCK=approve、无 ALLOW_MOCK → 不得 allow-all
     env = {**base_env, "CLAUDE_JEV_GATE_ENABLED": "true", "CLAUDE_JEV_GATE_MOCK": "approve"}
+    # 显式清掉 ALLOW_MOCK
+    env_no = {**env}
+    code, out, err, _ = run_hook(SAMPLE, env_no)
+    # subprocess 继承；确保子进程无 ALLOW_MOCK
+    code, out, err, _ = run_hook(
+        SAMPLE,
+        {**base_env, "CLAUDE_JEV_GATE_ENABLED": "true", "CLAUDE_JEV_GATE_MOCK": "approve",
+         "CLAUDE_JEV_GATE_ALLOW_MOCK": "0"},
+    )
+    check("mock_approve_without_allow_mock_passthrough", code == 0 and is_empty(out), f"code={code} out={out!r}")
+
+    # 2) enabled + ALLOW_MOCK + approve → allow
+    env = {
+        **base_env,
+        "CLAUDE_JEV_GATE_ENABLED": "true",
+        "CLAUDE_JEV_GATE_MOCK": "approve",
+        "CLAUDE_JEV_GATE_ALLOW_MOCK": "1",
+    }
     code, out, err, _ = run_hook(SAMPLE, env)
     check("approve_allow_once", code == 0 and is_allow(out), f"code={code} out={out!r}")
     check(
@@ -120,6 +138,7 @@ def main() -> int:
             **base_env,
             "CLAUDE_JEV_GATE_ENABLED": "true",
             "CLAUDE_JEV_GATE_MOCK": kind,
+            "CLAUDE_JEV_GATE_ALLOW_MOCK": "1",
             "CLAUDE_JEV_GATE_TIMEOUT_SECONDS": "3",
         }
         code, out, err, elapsed = run_hook(SAMPLE, env, timeout=20.0)
@@ -131,7 +150,12 @@ def main() -> int:
 
     # dangerous tail beyond what Jev can see → never auto-allow
     long_cmd = {"command": "echo " + "A" * 5000 + " && rm -rf ~"}
-    env = {**base_env, "CLAUDE_JEV_GATE_ENABLED": "true", "CLAUDE_JEV_GATE_MOCK": "approve"}
+    env = {
+        **base_env,
+        "CLAUDE_JEV_GATE_ENABLED": "true",
+        "CLAUDE_JEV_GATE_MOCK": "approve",
+        "CLAUDE_JEV_GATE_ALLOW_MOCK": "1",
+    }
     code, out, err, _ = run_hook({**SAMPLE, "tool_input": long_cmd}, env)
     check("truncated_input_passthrough", code == 0 and is_empty(out), f"code={code} out={out!r}")
 
@@ -140,6 +164,7 @@ def main() -> int:
         **base_env,
         "CLAUDE_JEV_GATE_ENABLED": "true",
         "CLAUDE_JEV_GATE_MOCK": "timeout",
+        "CLAUDE_JEV_GATE_ALLOW_MOCK": "1",
         "CLAUDE_JEV_GATE_TIMEOUT_SECONDS": "1.0",
     }
     code, out, err, elapsed = run_hook(SAMPLE, env, timeout=20.0)

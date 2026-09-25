@@ -49,7 +49,12 @@ def apply_trim_then_compress(
     msgs = trimmed
 
     # --- 步骤 2：COMPRESS（永远在 trim 之后）---
-    compressed, cstats = heuristic_compress(msgs, focus_topic=focus_topic)
+    compressed, cstats = heuristic_compress(
+        msgs,
+        focus_topic=focus_topic,
+        min_messages=getattr(cfg, "compress_min_messages", 8),
+        min_chars=getattr(cfg, "compress_min_chars", 8000),
+    )
     step_compress = {"step": "compress", "order": 2, **cstats}
     pipeline.append(step_compress)
     emit(event_log, "compress", order=2, **cstats)

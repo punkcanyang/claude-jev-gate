@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from collections import Counter
@@ -12,12 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from claude_jev_gate.config import RouteConfig  # noqa: E402
-from claude_jev_gate.routing import route_turn  # noqa: E402
+from claude_jev_gate.config import RouteConfig, load_route_config  # noqa: E402
+from claude_jev_gate.routing import route_messages_request, route_turn  # noqa: E402
 
 SAMPLES = ROOT / "data" / "routing_samples.jsonl"
-OUT_MD = ROOT / "notes" / "reports" / "routing-prove.md"
-OUT_JSON = ROOT / "notes" / "reports" / "routing-prove.json"
+# P2-11：报告写到临时目录，勿改写已跟踪的 notes/reports
 
 
 def _base_cfg(events: Path) -> RouteConfig:
@@ -109,6 +109,65 @@ def main() -> int:
         if lab.get("label") != "complex" or lab.get("fallback"):
             failures.append(f"label:complex mock failed: {lab}")
 
+
+        # P2-3：fallback 用客户端 model，不是无条件 primary_model
+        fb = route_turn(
+            "ping",
+            cfg=replace(cfg, mock="error"),
+            fallback_model="claude-sonnet-4-5",
+        )
+        if not (fb.get("fallback") and fb.get("model") == "claude-sonnet-4-5"):
+            failures.append(f"P2-3 client model fallback failed: {fb}")
+
+        # P2-3：未配模型映射（只有内置默认 deepseek-chat）时，高置信判决也不能把 deepseek-chat 塞给客户端上游
+        model_env = (
+            "CLAUDE_JEV_PRIMARY_MODEL", "CLAUDE_JEV_MODEL_CHEAP", "CLAUDE_JEV_MODEL_COMPLEX",
+            "CLAUDE_JEV_MODEL_TOOL_HEAVY", "CLAUDE_JEV_MODEL_LONG_CONTEXT",
+        )
+        saved = {k: os.environ.pop(k, None) for k in model_env}
+        try:
+            env_cfg = replace(load_route_config(), enabled=True, mock="heuristic", events_path=events)
+            for text in ("你好", "run pytest in the shell", "please refactor the architecture"):
+                d = route_messages_request(
+                    {"model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": text}]}, cfg=env_cfg
+                )
+                if d.get("model") != "claude-sonnet-4-5":
+                    failures.append(f"P2-3 unconfigured label sent non-client model for {text!r}: {d}")
+            os.environ["CLAUDE_JEV_PRIMARY_MODEL"] = "deepseek-chat"
+            os.environ["CLAUDE_JEV_MODEL_TOOL_HEAVY"] = "deepseek-reasoner"
+            env_cfg = replace(load_route_config(), enabled=True, mock="heuristic", events_path=events)
+            d = route_messages_request(
+                {"model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": "run pytest in the shell"}]},
+                cfg=env_cfg,
+            )
+            if d.get("model") != "deepseek-reasoner":
+                failures.append(f"P2-3 explicit mapping not honored: {d}")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        # P2-8：长 system 含 tool 字样 + 短 user「你好」→ 不应判 tool_heavy
+        from claude_jev_gate.routing import extract_user_text
+        long_system = (
+            "You are Claude Code. You have tools: Bash, Read, Grep, patch files, run pytest in shell. "
+            * 40
+        )
+        body = {
+            "model": "claude-sonnet-4-5",
+            "system": long_system,
+            "messages": [{"role": "user", "content": "你好"}],
+        }
+        # extract should not include system by default
+        ut = extract_user_text(body, include_system=False)
+        if "Bash" in ut or "pytest" in ut:
+            failures.append(f"P2-8 extract_user_text leaked system: {ut[:80]!r}")
+        decision = route_messages_request(body, cfg=cfg)
+        if decision.get("label") == "tool_heavy":
+            failures.append(f"P2-8 long system caused tool_heavy: {decision}")
+
         report = {
             "n": n,
             "hard_match": hard,
@@ -122,7 +181,10 @@ def main() -> int:
             "failures": failures,
             "results": results,
         }
-        OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
+        out_dir = Path(td) / "reports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        OUT_JSON = out_dir / "routing-prove.json"
+        OUT_MD = out_dir / "routing-prove.md"
         OUT_JSON.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         lines = [
             "# 路由证明（claude-jev-gate）",

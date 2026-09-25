@@ -48,7 +48,12 @@ def trim_messages(
     keep_last_n_turns: int = 6,
     drop_old_tool_noise: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """返回 (trimmed, stats)。禁止在 compress 前跳过本步（由 pipeline 强制调用）。"""
+    """返回 (trimmed, stats)。禁止在 compress 前跳过本步（由 pipeline 强制调用）。
+
+    计轮口径（P2-6 文档化）：每条 ``role=user`` 消息开启一轮（含仅含 tool_result
+    的 user 块）。这与 Anthropic「一对 user+assistant」语义不同，但对 agentic
+    会话更保守（保留更多最近 user／tool_result）。若需改成「一对一轮」可后续加开关。
+    """
     msgs = [m for m in messages if isinstance(m, dict)]
     before = estimate_chars(msgs)
     system = [m for m in msgs if _role(m) == "system"]
