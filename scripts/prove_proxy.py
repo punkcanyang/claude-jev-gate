@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,11 +16,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from claude_jev_gate.config import ProxyConfig, RouteConfig, TrimCompressConfig  # noqa: E402
+from claude_jev_gate.config import ProxyConfig, RouteConfig, TrimCompressConfig, load_proxy_config  # noqa: E402
+from claude_jev_gate.proxy.forward import _build_upstream_request  # noqa: E402
 from claude_jev_gate.proxy.server import make_server  # noqa: E402
 
 RESULTS: list[dict] = []
 CAPTURED: list[dict] = []
+SSE_EVENTS = 3
+SSE_GAP_SECONDS = 0.4
 
 
 def check(name: str, ok: bool, detail: object = "") -> None:
@@ -39,6 +43,17 @@ class FakeUpstream(BaseHTTPRequestHandler):
         self.wfile.write(b"{}")
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path.startswith("/sse"):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("request-id", "req_sse_1")
+            self.end_headers()
+            for i in range(SSE_EVENTS):
+                self.wfile.write(f"event: ping\ndata: {{\"i\":{i}}}\n\n".encode("utf-8"))
+                self.wfile.flush()
+                time.sleep(SSE_GAP_SECONDS)
+            return
         if self.path.startswith("/redirect"):
             self.rfile.read(int(self.headers.get("Content-Length") or 0))
             self.send_response(302)
@@ -267,11 +282,44 @@ def main() -> int:
         rh,
     )
 
+    # P2-7：SSE 边收边发（上游每 SSE_GAP_SECONDS 一个事件，首个事件须早于流结束到达）
+    port = start(make_server(replace(base, upstream_base_url=up_url + "/sse")))
+    t0 = time.monotonic()
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+    conn.request(
+        "POST", "/v1/messages",
+        body=json.dumps({**body, "stream": True}).encode("utf-8"),
+        headers={"Host": f"127.0.0.1:{port}", **json_h},
+    )
+    resp = conn.getresponse()
+    first_at = None
+    sse_data = b""
+    while True:
+        piece = resp.read1(65536)
+        if not piece:
+            break
+        if first_at is None:
+            first_at = time.monotonic() - t0
+        sse_data += piece
+    total = time.monotonic() - t0
+    check(
+        "sse_streams_incrementally",
+        first_at is not None and first_at < total - SSE_GAP_SECONDS
+        and sse_data.count(b"event: ping") == SSE_EVENTS,
+        (first_at, total, sse_data[:120]),
+    )
+    check(
+        "sse_http10_no_chunked_framing",
+        resp.getheader("transfer-encoding") is None and sse_data.startswith(b"event: ping"),
+        (resp.getheader("transfer-encoding"), sse_data[:40]),
+    )
+    check("sse_passthrough_request_id", resp.getheader("request-id") == "req_sse_1", resp.getheaders())
+
     # P2-2：按上游选 Key（两 Key 都设时 DeepSeek 主机只用 DEEPSEEK）
     from claude_jev_gate.config import resolve_upstream_api_key
 
     old = {k: os.environ.get(k) for k in (
-        "CLAUDE_JEV_UPSTREAM_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"
+        "CLAUDE_JEV_UPSTREAM_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "CLAUDE_JEV_UPSTREAM_BASE_URL"
     )}
     try:
         os.environ.pop("CLAUDE_JEV_UPSTREAM_API_KEY", None)
@@ -296,6 +344,23 @@ def main() -> int:
         post(port, body, {**json_h, "x-api-key": "client-ant-key"})
         h = CAPTURED[0]["headers"] if CAPTURED else {}
         check("e2e_deepseek_key_not_anthropic", h.get("x-api-key") == "sk-ds-CORRECT", h)
+
+        # 真实 env → load_proxy_config → 出站请求头（不发网络）
+        client_h = {"x-api-key": "client-ant-key", "authorization": "Bearer client-ant-tok"}
+        for url, want_host, want_key in (
+            ("https://api.deepseek.com/anthropic", "api.deepseek.com", "sk-ds-CORRECT"),
+            ("https://api.anthropic.com", "api.anthropic.com", "sk-ant-SHOULD-NOT-SEND"),
+        ):
+            os.environ["CLAUDE_JEV_UPSTREAM_BASE_URL"] = url
+            req = _build_upstream_request({"model": "m"}, cfg=load_proxy_config(), headers=client_h, query="")
+            out_h = {k.lower(): v for k, v in req.header_items()}
+            leaked = [v for v in ("sk-ant-SHOULD-NOT-SEND", "sk-ds-CORRECT", "client-ant") if v != want_key and v in json.dumps(out_h)]
+            check(
+                f"env_key_select_{want_host}",
+                req.host == want_host and out_h.get("x-api-key") == want_key
+                and "authorization" not in out_h and not leaked,
+                (req.host, out_h),
+            )
     finally:
         for k, v in old.items():
             if v is None:

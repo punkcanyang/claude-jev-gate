@@ -1,6 +1,7 @@
 """Anthropic Messages 兼容小 HTTP 服务：路由＋裁压＋转发。"""
 from __future__ import annotations
 
+import hmac
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -229,7 +230,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not token:
             return True
         got = (self.headers.get("x-claude-jev-proxy-token") or "").strip()
-        return got == token and bool(got)
+        return bool(got) and hmac.compare_digest(got.encode("utf-8"), token.encode("utf-8"))
 
     def _read_json(self) -> dict[str, Any] | None | str:
         """成功返回 dict；超限返回 'too_large'；非法返回 None。"""
@@ -268,26 +269,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_stream(self, status: int, headers: dict[str, str], chunks: Any) -> None:
-        """P2-7：chunked 写出；不设 Content-Length。"""
+        """P2-7：边收边写，以关连接结束响应体。
+
+        本服务按 HTTP/1.0 应答，1.0 不允许 Transfer-Encoding: chunked，只能不带长度、写完即关。
+        """
+        self.close_connection = True
         self.send_response(status)
         for k, v in headers.items():
-            if k.lower() == "content-length":
+            if k.lower() in ("content-length", "transfer-encoding", "connection"):
                 continue
             self.send_header(k, v)
-        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Connection", "close")
         self.end_headers()
         try:
             for chunk in chunks:
                 if not chunk:
                     continue
-                self.wfile.write(f"{len(chunk):x}\r\n".encode("ascii"))
                 self.wfile.write(chunk)
-                self.wfile.write(b"\r\n")
                 self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError):
             return
+        finally:
+            close = getattr(chunks, "close", None)
+            if callable(close):
+                close()
 
     def do_GET(self) -> None:  # noqa: N802
         if not self._host_allowed():

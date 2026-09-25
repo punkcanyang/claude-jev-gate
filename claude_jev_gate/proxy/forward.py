@@ -205,7 +205,8 @@ def iter_forward_messages(
     def _chunks() -> Iterator[bytes]:
         try:
             while True:
-                chunk = resp.read(chunk_size)
+                # read() 会等满 chunk_size 或 EOF，SSE 事件会被攒到流结束才发出
+                chunk = resp.read1(chunk_size)
                 if not chunk:
                     break
                 yield chunk
