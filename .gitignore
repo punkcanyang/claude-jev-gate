@@ -16,3 +16,6 @@ venv/
 notes/grok-run.log
 events.jsonl
 .claude/claude-jev-gate/
+
+# local README preview renders (SVGs are source of truth)
+docs/readme-assets/preview/
