@@ -1,7 +1,7 @@
 # claude-jev-gate
 
 <p align="center">
-  <img src="./docs/readme-assets/hero.svg" width="100%" alt="claude-jev-gate: Claude Code PermissionRequest tool gate and local Anthropic-compatible proxy with three off-by-default switches">
+  <img src="./docs/readme-assets/hero.svg" width="100%" alt="claude-jev-gate v0.2.1: Claude Code PermissionRequest tool gate and local Anthropic-compatible proxy with three off-by-default switches">
 </p>
 
 给 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 加两件可选能力：
@@ -12,7 +12,7 @@
 三开关默认**全关**，彼此独立。TypeSafe **直连**（`TYPESAFE_API_KEY`）；**禁止** Vercel AI Gateway。密钥不进仓、不打印。
 
 <p align="center">
-  <img src="./docs/readme-assets/architecture.svg" width="100%" alt="Claude Code tool gate path and local proxy path: Jev route, trim then compress, upstream DeepSeek">
+  <img src="./docs/readme-assets/architecture.svg" width="100%" alt="Claude Code tool gate path and local proxy path: Jev route, trim then compress, upstream DeepSeek or Anthropic">
 </p>
 
 ## 最短上手
@@ -24,25 +24,23 @@ cd /path/to/claude-jev-gate
 python3 scripts/prove_gate.py            # 工具闸（含 mock 双开关防护）
 python3 scripts/prove_routing.py         # ≥20 样本选型分布＋兜底＋长 system 不误判
 python3 scripts/prove_trim_compress.py   # 先 trim 再 compress（order_ok；短会话不猛砍）
-python3 scripts/prove_proxy.py           # 代理 HTTP 层：透明／凭据／鉴权／Key 选择／fail-open／tool 配对
+python3 scripts/prove_proxy.py           # 透明／凭据／鉴权／Key 选择／fail-open／SSE／tool 配对
 ./scripts/demo_proxy_curl.sh             # 自启 mock 代理 + curl Messages
 ```
 
-四个 prove 必须 exit 0，都不需要 Key 或 `typesafe_sdk`。routing／trim_compress 报告落在临时目录（不改写公开树）。
+四个 prove 必须 exit 0，都不需要 Key 或 `typesafe_sdk`。routing／trim_compress 报告落在临时目录。
 
-CI：`.github/workflows/prove.yml` 在 push／PR 时跑四个 prove + pyflakes。
+CI 已上线：[`.github/workflows/prove.yml`](./.github/workflows/prove.yml) 在 push／PR 跑四个 prove + pyflakes。
 
 ### 2. 起代理（可选）
 
 ```bash
 cd /path/to/claude-jev-gate
-export CLAUDE_JEV_UPSTREAM_MOCK=1   # 无上游 Key 时；不设又没配上游 URL → 代理回 503，不会假装成功
-# 可选打开路由／裁压：
+export CLAUDE_JEV_UPSTREAM_MOCK=1   # 无上游 Key 时；不设又没配上游 URL → 503
 # export CLAUDE_JEV_ROUTE_ENABLED=true
 # export CLAUDE_JEV_TRIM_COMPRESS_ENABLED=true
 # export CLAUDE_JEV_ROUTE_MOCK=heuristic
 
-# 优先用 typesafe-venv；也可用环境变量覆盖（见下）
 export CLAUDE_JEV_GATE_PYTHON="${CLAUDE_JEV_GATE_PYTHON:-python3}"
 "$CLAUDE_JEV_GATE_PYTHON" bin/proxy_server.py
 # 默认 http://127.0.0.1:8787
@@ -52,21 +50,19 @@ Claude Code 指到代理：
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8787
-# 真打上游时：CLAUDE_JEV_UPSTREAM_MOCK=0
+# 真打上游：CLAUDE_JEV_UPSTREAM_MOCK=0
 # + CLAUDE_JEV_UPSTREAM_BASE_URL（例：https://api.deepseek.com/anthropic）
-# + CLAUDE_JEV_UPSTREAM_API_KEY（推荐显式）或按 host 自动选 DEEPSEEK_API_KEY／ANTHROPIC_API_KEY
+# + CLAUDE_JEV_UPSTREAM_API_KEY（推荐）或按 host 自动选 DEEPSEEK_API_KEY／ANTHROPIC_API_KEY
 ```
 
-代理的安全边界：
+代理边界（要点）：
 
-- **可选客户端鉴权**（`CLAUDE_JEV_PROXY_AUTH_TOKEN`，默认关）。开启后请求须带 `x-claude-jev-proxy-token`；无／错 → 401。共享机建议开启。Claude Code 侧用 `export ANTHROPIC_CUSTOM_HEADERS="x-claude-jev-proxy-token: <同一 token>"` 带上该头。
-- 默认只听 `127.0.0.1`；绑非回环地址会打印警告（有 token 时警告文案会注明已开鉴权）。
-- 只接受回环 `Host` 且 `Content-Type: application/json` 的请求（挡网页跨站 simple request 与 DNS rebinding 盗刷额度）。
-- **Key 按上游选**：`CLAUDE_JEV_UPSTREAM_API_KEY` 优先；否则 deepseek host → 仅 `DEEPSEEK_API_KEY`；anthropic host → 仅 `ANTHROPIC_API_KEY`；未知 host 不自动猜。代理自带 Key 时**不透传**客户端 `x-api-key`／`Authorization`。
-- 不跟随上游重定向（3xx 原样回给客户端）。
-- 请求体默认上限 32MiB（`CLAUDE_JEV_PROXY_MAX_BODY_BYTES`）；超限 413。
+- **可选鉴权** `CLAUDE_JEV_PROXY_AUTH_TOKEN`（默认关）。开启后须带 `x-claude-jev-proxy-token`；无／错 → 401。Claude Code：`export ANTHROPIC_CUSTOM_HEADERS="x-claude-jev-proxy-token: <token>"`。
+- 默认只听 `127.0.0.1`；只接受回环 `Host` + `Content-Type: application/json`。
+- **Key 按上游选**：`CLAUDE_JEV_UPSTREAM_API_KEY` 优先；deepseek host → 仅 `DEEPSEEK_API_KEY`；anthropic host → 仅 `ANTHROPIC_API_KEY`；未知 host 不自动猜。代理自带 Key 时不透传客户端 `x-api-key`／`Authorization`。
+- 不跟随上游 3xx；体默认上限 32MiB（超限 413）。
 - `/v1/messages/count_tokens`：有上游则透传，否则 501。
-- SSE：客户端 `stream=true`（或 `Accept: text/event-stream`）时上游到一块写一块；代理按 HTTP/1.0 应答，流式响应不带长度、写完即关连接（不用 chunked）。非 stream／mock 仍整包缓冲。透传 `request-id`／`retry-after`／限流相关头。
+- **SSE**：`stream=true`（或 `Accept: text/event-stream`）时上游到一块写一块；HTTP/1.0 应答、不带长度、写完关连接（不用 chunked）。非 stream／mock 仍整包缓冲。透传 `request-id`／`retry-after`／限流相关头。
 
 ### 3. 装工具闸 plugin
 
@@ -80,7 +76,7 @@ export CLAUDE_JEV_GATE_ENABLED=true
 # export CLAUDE_JEV_GATE_ALLOW_MOCK=1
 ```
 
-仅设 `CLAUDE_JEV_GATE_MOCK=approve`、**没有** `CLAUDE_JEV_GATE_ALLOW_MOCK=1` 时，mock **不会**生效（走缺 Key → unsure／交回人审）。events 会标记 `mock`／`allow_mock`／`mock_requested`。
+仅设 `CLAUDE_JEV_GATE_MOCK=approve`、**没有** `CLAUDE_JEV_GATE_ALLOW_MOCK=1` 时，mock **不会**生效（缺 Key → unsure／交回人审）。events 会标记 `mock`／`allow_mock`／`mock_requested`。
 
 可选：把 `hooks/hooks.json` 里的 command 拷到项目 `.claude/settings.json`，把 `${CLAUDE_PLUGIN_ROOT}` 换成绝对路径。
 
@@ -94,7 +90,7 @@ export CLAUDE_JEV_GATE_ENABLED=true
 
 全关：可不启代理（直连上游＋原版人审）；若启代理且路由／裁压都关，则**透明转发**（不改 model、不改 messages；透传 `anthropic-version`／`anthropic-beta` 与 query）。
 
-其它常用变量见 `config.example.env`。
+其它常用变量见 [`config.example.env`](./config.example.env)。
 
 ## 解释器与 TypeSafe 路径
 
@@ -139,7 +135,7 @@ CLAUDE_JEV_GATE_PYTHON
 
 ## 已知限制
 
-- compress 为**本地启发式 stub**（可证明顺序），不是上游 LLM 压缩；顺序强制 trim → compress。被裁断的 `tool_use`／`tool_result` 会成对剔除。
+- compress 为**本地启发式 stub**（可证明顺序），不是上游 LLM 压缩；被裁断的 `tool_use`／`tool_result` 会成对剔除。
 - 工具闸不做硬禁第二开关；默认关；无 session／always 缓存。
 - Live 依赖 TypeSafe 额度与 `TYPESAFE_API_KEY`；脱敏尽力而为，非安全边界。
 - **提示注入**：LLM 判官天然存在提示注入风险；输入侧会 scrub 常见注入句式并在 events 标 `injection_suspect`；**0.80 置信门槛只部分缓解，不承诺消灭**。
@@ -150,22 +146,19 @@ CLAUDE_JEV_GATE_PYTHON
 ## 目录
 
 ```text
-.claude-plugin/plugin.json
+.claude-plugin/plugin.json          # v0.2.1
 hooks/hooks.json
-bin/permission_request.sh   # hook 启动器：选解释器后 exec permission_request.py
+bin/permission_request.sh           # 选解释器后 exec permission_request.py
 bin/permission_request.py
 bin/proxy_server.py
 claude_jev_gate/
-  config.py decide.py jev_client.py redact.py events.py timeouts.py   # 工具闸
-  routing.py trim.py compress.py pipeline.py                          # 路由／裁压
-  proxy/   # Anthropic Messages 兼容小服务
+  config.py decide.py jev_client.py redact.py events.py timeouts.py
+  routing.py trim.py compress.py pipeline.py
+  proxy/                            # Anthropic Messages 兼容小服务
 data/routing_samples.jsonl
-scripts/prove_gate.py
-scripts/prove_routing.py
-scripts/prove_trim_compress.py
-scripts/prove_proxy.py
+scripts/prove_*.py
 scripts/demo_proxy_curl.sh
-.github/workflows/prove.yml  # CI：四 prove + pyflakes
+.github/workflows/prove.yml         # CI：四 prove + pyflakes（已上线）
 config.example.env
 docs/readme-assets/
 ```
