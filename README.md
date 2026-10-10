@@ -11,6 +11,8 @@
 
 三开关默认**全关**，彼此独立。TypeSafe **直连**（`TYPESAFE_API_KEY`）；**禁止** Vercel AI Gateway。密钥不进仓、不打印。
 
+作者：[@punkcan](https://x.com/punkcan)
+
 <p align="center">
   <img src="./docs/readme-assets/architecture.svg" width="100%" alt="Claude Code tool gate path and local proxy path: Jev route, trim then compress, upstream DeepSeek or Anthropic">
 </p>
